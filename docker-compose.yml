@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: simplerlink_db
+    environment:
+      POSTGRES_USER: linker_user
+      POSTGRES_PASSWORD: linker_pass
+      POSTGRES_DB: linker_db
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: simplerlink_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - internal
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: simplerlink_api
+    env_file:
+      - ./api/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  db_data:
