@@ -3,6 +3,7 @@ import random
 import string
 from datetime import datetime, timedelta, timezone
 
+import redis as redis
 from fastapi import APIRouter, HTTPException, Request, Depends, BackgroundTasks, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, ConfigDict
@@ -12,6 +13,9 @@ from models.link import Link
 from api.auth import get_current_user
 
 router = APIRouter()
+
+redis_client = redis.Redis.from_url(os.getenv("REDIS_URL"), decode_responses=True)
+CACHE_TTL = 3600  # время жизни кэша в секундах (например, 1 час)
 
 class LinkCreate(BaseModel):
     """
@@ -199,6 +203,8 @@ def create_link(link_in: LinkCreate, db: Session = Depends(get_db), current_user
     db.commit()
     db.refresh(link)
 
+    redis_client.setex(f"url:{link.short_code}", CACHE_TTL, link.original_url)
+
     return link
 
 
@@ -253,6 +259,10 @@ def update_link(short_code: str, link_in: LinkUpdate, db: Session = Depends(get_
     db.commit()
     db.refresh(link)
 
+    new_url = link.original_url
+    redis_client.setex(f"url:{short_code}", CACHE_TTL, new_url)
+    # redis_client.delete(f"url:{short_code}")
+
     return link
 
 
@@ -277,6 +287,7 @@ def delete_link(short_code: str, db: Session = Depends(get_db), current_user=Dep
 
     db.delete(link)
     db.commit()
+    redis_client.delete(f"url:{short_code}")
 
     return
 
@@ -317,15 +328,21 @@ async def public_redirect(short_code: str, background_tasks: BackgroundTasks, db
     Returns:
         RedirectResponse: Перенаправляет пользователя на оригинальный URL, связанный с данным коротким кодом, с HTTP статусом 302.
     """
+    cache_key = f"url:{short_code}"
+    cached_url = redis_client.get(cache_key)
+
+    if cached_url:
+        background_tasks.add_task(update_link_stats, short_code)
+        return RedirectResponse(url=cached_url, status_code=302)
 
     link = db.query(Link).filter(Link.short_code == short_code).first()
 
     if not link:
         raise HTTPException(status_code=404, detail="Ссылка не найдена")
-
     if link.expires_at and link.expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=410, detail="Ссылка устарела")
 
+    redis_client.setex(cache_key, CACHE_TTL, link.original_url)
     background_tasks.add_task(update_link_stats, short_code)
 
     return RedirectResponse(url=link.original_url, status_code=302)
