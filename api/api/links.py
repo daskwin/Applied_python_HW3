@@ -15,7 +15,7 @@ from api.auth import get_current_user
 router = APIRouter()
 
 redis_client = redis.Redis.from_url(os.getenv("REDIS_URL"), decode_responses=True)
-CACHE_TTL = 3600  # время жизни кэша в секундах (например, 1 час)
+CACHE_TTL = 3600
 
 class LinkCreate(BaseModel):
     """
