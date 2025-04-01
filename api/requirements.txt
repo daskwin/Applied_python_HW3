@@ -7,3 +7,9 @@ passlib[bcrypt]
 redis
 pydantic
 email-validator
+httpx
+pytest-asyncio
+pytest
+pytest-mock
+locust
+coverage
